@@ -4,12 +4,12 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 
-import httpx
 from qdrant_client import QdrantClient
 
 from rag_api.config import Settings, get_settings
 from rag_api.core.exceptions import ConfigurationError
 from rag_api.database.postgres import PostgresDatabase
+from rag_api.services.catalog_service import CatalogService
 from rag_api.services.gemini_service import GeminiService
 from rag_api.services.llm_service import LLMService
 from rag_api.services.product_lookup import ProductLookup
@@ -30,6 +30,7 @@ def build_llm(settings: Settings) -> LLMService | GeminiService:
             model=settings.gemini_model,
             base_url=settings.gemini_base_url,
             timeout_seconds=settings.gemini_timeout_seconds,
+            thinking_budget=settings.gemini_thinking_budget,
         )
     if settings.llm_provider == "ollama":
         return LLMService(
@@ -46,6 +47,7 @@ class AppServices:
     retriever: ProductRetriever
     database: PostgresDatabase
     llm: LLMService | GeminiService
+    catalog: CatalogService
 
 
 @lru_cache
@@ -63,8 +65,10 @@ def get_services() -> AppServices:
         embedder.model, "get_embedding_dimension", None
     ) or embedder.model.get_sentence_embedding_dimension
 
+    qdrant = QdrantClient(url=settings.qdrant_url)  # one client, shared
+
     retriever = ProductRetriever(
-        client=QdrantClient(url=settings.qdrant_url),
+        client=qdrant,
         embedder=embedder,
         collection=settings.qdrant_collection,
         expected_dimension=get_dimension(),
@@ -80,4 +84,5 @@ def get_services() -> AppServices:
         candidate_multiplier=settings.candidate_multiplier,
         max_candidates=settings.max_candidates,
     )
-    return AppServices(rag=rag, retriever=retriever, database=database, llm=llm)
+    catalog = CatalogService(database, qdrant, settings.qdrant_collection)
+    return AppServices(rag=rag, retriever=retriever, database=database, llm=llm, catalog=catalog)

@@ -33,6 +33,19 @@ def _env_int(name: str, default: int) -> int:
         raise ConfigurationError(f"{name} must be an integer, got {raw!r}") from None
 
 
+def _env_optional_int(name: str, default: int | None) -> int | None:
+    """Unset -> default; set but empty -> None (explicitly 'use the provider default')."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    if raw.strip() == "":
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        raise ConfigurationError(f"{name} must be an integer or empty, got {raw!r}") from None
+
+
 def _env_float(name: str, default: float) -> float:
     raw = os.getenv(name)
     if raw is None or raw == "":
@@ -66,6 +79,7 @@ class Settings:
     gemini_model: str = "gemini-3.8-flash"
     gemini_base_url: str = "https://generativelanguage.googleapis.com"
     gemini_timeout_seconds: float = 60.0
+    gemini_thinking_budget: int | None = 0  # 0 = no hidden reasoning tokens (faster); None = model default
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
@@ -105,6 +119,7 @@ class Settings:
             gemini_model=os.getenv("GEMINI_MODEL", cls.gemini_model),
             gemini_base_url=os.getenv("GEMINI_BASE_URL", cls.gemini_base_url).rstrip("/"),
             gemini_timeout_seconds=_env_float("GEMINI_TIMEOUT_SECONDS", cls.gemini_timeout_seconds),
+            gemini_thinking_budget=_env_optional_int("GEMINI_THINKING_BUDGET", cls.gemini_thinking_budget),
             ollama_base_url=os.getenv("OLLAMA_BASE_URL", cls.ollama_base_url).rstrip("/"),
             ollama_model=os.getenv("OLLAMA_MODEL", cls.ollama_model),
             ollama_timeout_seconds=_env_float("OLLAMA_TIMEOUT_SECONDS", cls.ollama_timeout_seconds),

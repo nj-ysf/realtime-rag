@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>E-commerce RAG · Console</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="/static/favicon.svg" alt="" class="logo" width="32" height="32">
+      <div>
+        <h1>E-commerce RAG</h1>
+        <p class="pipeline">PostgreSQL → Debezium → Kafka → Qdrant → LLM</p>
+      </div>
+    </div>
+    <div class="health" aria-live="polite">
+      <span class="pill" data-dep="postgres"><span class="dot"></span>PostgreSQL</span>
+      <span class="pill" data-dep="qdrant"><span class="dot"></span>Qdrant</span>
+      <span class="pill" data-dep="llm"><span class="dot"></span>LLM</span>
+      <button id="health-refresh" class="icon-btn" type="button" title="Refresh status" aria-label="Refresh status">↻</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel chat-panel" aria-labelledby="chat-title">
+      <h2 id="chat-title">Ask about products</h2>
+
+      <div class="examples" aria-label="Example questions">
+        <button type="button" class="chip" data-q="Find me a laptop suitable for programming">💻 Laptop for programming</button>
+        <button type="button" class="chip" data-q="Show products under 1000 MAD">🏷️ Under 1000 MAD</button>
+        <button type="button" class="chip" data-q="Do you have a gaming laptop with 16GB RAM?">🎮 Gaming laptop 16GB</button>
+        <button type="button" class="chip" data-q="Which products are currently out of stock?">📦 Out of stock</button>
+        <button type="button" class="chip" data-q="Trouve-moi un smartphone avec un bon appareil photo" lang="fr">📷 Smartphone photo (FR)</button>
+        <button type="button" class="chip" data-q="ابحث عن سماعات لاسلكية" lang="ar" dir="rtl">🎧 سماعات لاسلكية</button>
+      </div>
+
+      <form id="ask-form" class="ask-form">
+        <label for="question" class="sr-only">Your question</label>
+        <textarea id="question" dir="auto" maxlength="500" rows="3" required
+                  placeholder="Ask in English, French or Arabic… (Ctrl+Enter to send)"></textarea>
+        <div class="form-row">
+          <label class="inline-label">Products
+            <select id="top-k">
+              <option>1</option><option>2</option><option>3</option><option>4</option>
+              <option selected>5</option><option>8</option><option>10</option>
+            </select>
+          </label>
+          <span id="char-count" class="muted small">0 / 500</span>
+          <button type="button" id="clear-btn" class="ghost">Clear</button>
+          <button type="submit" id="ask-btn" class="primary">Ask</button>
+        </div>
+      </form>
+
+      <div id="conversation" class="conversation" aria-live="polite">
+        <div class="empty-state" id="empty-state">
+          <p><strong>How it works</strong></p>
+          <ol>
+            <li>Your question is embedded and matched against products in <b>Qdrant</b>.</li>
+            <li>Prices, stock and exact filters (e.g. “under 1000 MAD”) come from <b>PostgreSQL</b>.</li>
+            <li>The <b>LLM</b> answers using only those products.</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel catalog-panel" aria-labelledby="catalog-title">
+      <div class="panel-head">
+        <h2 id="catalog-title">Live catalog</h2>
+        <div class="panel-actions">
+          <label class="toggle"><input type="checkbox" id="auto-refresh"> Auto (5s)</label>
+          <button type="button" id="catalog-refresh" class="ghost small-btn">Refresh</button>
+        </div>
+      </div>
+      <p class="muted small">
+        PostgreSQL (source of truth) compared with the Qdrant index. Change a product in the
+        database and watch it sync through Debezium → Kafka → the ingestion consumer.
+      </p>
+      <div id="counts" class="counts"></div>
+      <div id="catalog-error" class="error-box hidden"></div>
+      <div class="table-wrap">
+        <table class="catalog-table">
+          <thead><tr><th>Product</th><th class="num">Price</th><th class="num">Stock</th><th>Index</th></tr></thead>
+          <tbody id="catalog-body"></tbody>
+        </table>
+      </div>
+      <div class="legend small">
+        <span><span class="status synced"></span>synced</span>
+        <span><span class="status stale"></span>stale (index behind)</span>
+        <span><span class="status missing"></span>not indexed</span>
+        <span><span class="status unknown"></span>unknown</span>
+      </div>
+      <p class="muted small hint">Stale or missing for long? Check that the ingestion consumer is running:
+        <code>python -m ingestion.main</code></p>
+    </aside>
+  </main>
+
+  <footer class="footer muted small">
+    <a href="/docs">API docs</a> · <a href="/health">/health</a> · <a href="/catalog">/catalog</a>
+  </footer>
+</body>
+</html>

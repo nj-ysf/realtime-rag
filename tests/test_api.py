@@ -34,12 +34,24 @@ def probe(error):
     return run
 
 
-def install(rag=None, pg=None, qdrant=None, ollama=None):
+class FakeCatalog:
+    def __init__(self, snapshot=None, error=None):
+        self.snapshot_value, self.error, self.limit = snapshot, error, None
+
+    def snapshot(self, limit):
+        self.limit = limit
+        if self.error:
+            raise self.error
+        return self.snapshot_value
+
+
+def install(rag=None, pg=None, qdrant=None, ollama=None, catalog=None):
     services = SimpleNamespace(
         rag=rag or FakeRAG(ok_result()),
         database=SimpleNamespace(ping=probe(pg)),
         retriever=SimpleNamespace(ping=probe(qdrant)),
         llm=SimpleNamespace(check=probe(ollama)),
+        catalog=catalog or FakeCatalog(),
     )
     app.dependency_overrides[get_services] = lambda: services
     return services
@@ -129,3 +141,64 @@ def test_health_never_leaks_unexpected_error_details():
     text = client.get("/health").text
     assert "SECRET" not in text and "admin" not in text
     assert "RuntimeError" in text
+
+
+# ---------- web UI + catalog ----------
+
+def test_ui_is_served_with_security_headers():
+    response = client.get("/ui")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "E-commerce RAG" in response.text
+    csp = response.headers["content-security-policy"]
+    assert "script-src 'self'" in csp and "frame-ancestors 'none'" in csp
+
+
+@pytest.mark.parametrize("path,content_type", [
+    ("/static/app.js", "javascript"), ("/static/styles.css", "text/css"), ("/static/favicon.svg", "image/svg+xml"),
+])
+def test_static_assets(path, content_type):
+    response = client.get(path)
+    assert response.status_code == 200 and content_type in response.headers["content-type"]
+
+
+def test_ui_has_no_external_dependencies():
+    html = client.get("/ui").text
+    assert "http://" not in html and "https://" not in html  # no CDN: works offline, leaks nothing
+
+
+def test_root_links_the_ui():
+    assert client.get("/").json()["ui"] == "/ui"
+
+
+def test_catalog_endpoint_shape():
+    from datetime import datetime, timezone
+    from decimal import Decimal
+
+    from rag_api.services.catalog_service import CatalogEntry, CatalogSnapshot
+
+    entry = CatalogEntry(
+        id=make_product().id, name="ThinkPad", brand="Lenovo", category="Electronics", price=Decimal("7850.00"),
+        currency="MAD", stock_quantity=12, is_active=True, updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        sync_status="stale", differences=["price"],
+    )
+    fake = FakeCatalog(CatalogSnapshot([entry], postgres_count=21, qdrant_count=20))
+    install(catalog=fake)
+
+    body = client.get("/catalog?limit=50").json()
+    assert fake.limit == 50
+    assert body["postgres_count"] == 21 and body["qdrant_count"] == 20 and body["qdrant_error"] is None
+    assert body["items"][0]["price"] == 7850.0
+    assert body["items"][0]["sync_status"] == "stale" and body["items"][0]["differences"] == ["price"]
+
+
+@pytest.mark.parametrize("limit", [0, 501, "x"])
+def test_catalog_limit_validation(limit):
+    install()
+    assert client.get(f"/catalog?limit={limit}").status_code == 422
+
+
+def test_catalog_database_failure_is_503():
+    install(catalog=FakeCatalog(error=DatabaseError("Could not read the catalog from PostgreSQL")))
+    response = client.get("/catalog")
+    assert response.status_code == 503 and "catalog" in response.json()["detail"]

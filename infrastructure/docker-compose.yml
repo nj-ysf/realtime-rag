@@ -112,6 +112,7 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      GEMINI_THINKING_BUDGET: ${GEMINI_THINKING_BUDGET:-0}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
       API_HOST: 0.0.0.0

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from rag_api.config import get_settings
 from rag_api.core.exceptions import (
@@ -16,7 +17,7 @@ from rag_api.core.exceptions import (
     RetrievalError,
 )
 from rag_api.core.logging import configure_logging
-from rag_api.routes import chat, health
+from rag_api.routes import catalog, chat, health, web
 
 logger = logging.getLogger("rag_api")
 
@@ -77,6 +78,9 @@ def create_app() -> FastAPI:
 
     app.include_router(chat.router)
     app.include_router(health.router)
+    app.include_router(catalog.router)
+    app.include_router(web.router)
+    app.mount("/static", StaticFiles(directory=web.STATIC_DIR), name="static")
 
     @app.get("/", tags=["info"])
     def root() -> dict:
@@ -84,7 +88,8 @@ def create_app() -> FastAPI:
             "name": "Real-Time E-commerce RAG API",
             "version": app.version,
             "docs": "/docs",
-            "endpoints": {"chat": "POST /chat", "health": "GET /health"},
+            "ui": "/ui",
+            "endpoints": {"chat": "POST /chat", "health": "GET /health", "catalog": "GET /catalog"},
         }
 
     return app
