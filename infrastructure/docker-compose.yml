@@ -4,12 +4,15 @@ services:
     image: postgres:17
     container_name: ecommerce-postgres
     restart: unless-stopped
+    # Credentials come from infrastructure/.env (git-ignored); see .env.example.
     environment:
-      POSTGRES_DB: ecommerce
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin123
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in infrastructure/.env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in infrastructure/.env}
+    # Only reachable from this machine. Host port is configurable in .env (POSTGRES_HOST_PORT),
+    # e.g. 5433 when a native PostgreSQL already occupies 5432.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -63,6 +66,11 @@ services:
       CONFIG_STORAGE_REPLICATION_FACTOR: 1
       OFFSET_STORAGE_REPLICATION_FACTOR: 1
       STATUS_STORAGE_REPLICATION_FACTOR: 1
+      # Lets connector.json reference ${env:POSTGRES_PASSWORD} instead of a literal password.
+      CONNECT_CONFIG_PROVIDERS: env
+      CONNECT_CONFIG_PROVIDERS_ENV_CLASS: org.apache.kafka.common.config.provider.EnvVarConfigProvider
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in infrastructure/.env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in infrastructure/.env}
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -74,7 +82,48 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  # RAG API. Opt-in profile, so a plain `docker compose up` does not build or start it:
+  #   docker compose --profile api up -d --build rag-api
+  # Inside the container "localhost" is the container itself, so other services are
+  # reached by service name. Ollama runs on the host (it is not part of this compose file):
+  # on the host set OLLAMA_HOST=0.0.0.0 so it accepts connections from containers.
+  rag-api:
+    profiles: ["api"]
+    build:
+      context: ..
+      dockerfile: rag_api/Dockerfile
+    container_name: ecommerce-rag-api
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - qdrant
+    ports:
+      - "8000:8000"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in infrastructure/.env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in infrastructure/.env}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: products
+      # LLM backend. GEMINI_API_KEY comes from infrastructure/.env (git-ignored) or your
+      # shell environment (which takes precedence), never written here.
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      HF_HOME: /models
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - hf_cache:/models
+
 volumes:
   postgres_data:
   kafka_data:
   qdrant_data:
+  hf_cache:

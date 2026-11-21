@@ -1,6 +1,8 @@
-
 confluent-kafka
 qdrant-client
 sentence-transformers
 psycopg[binary]
 python-dotenv
+fastapi
+uvicorn
+httpx
